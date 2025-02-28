@@ -32,9 +32,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 pub mod accounts;
+pub mod child_bounties;
 pub mod claims;
 pub mod crowdloan;
-pub mod child_bounties;
 pub mod indices;
 pub mod multisig;
 pub mod preimage;
@@ -51,6 +51,7 @@ pub mod conviction_voting;
 pub mod scheduler;
 
 use accounts::AccountsMigrator;
+use child_bounties::ChildBountiesMigrator;
 use claims::{ClaimsMigrator, ClaimsStage};
 use frame_support::{
 	pallet_prelude::*,
@@ -71,7 +72,6 @@ use polkadot_parachain_primitives::primitives::Id as ParaId;
 use polkadot_runtime_common::{
 	claims as pallet_claims, crowdloan as pallet_crowdloan, paras_registrar, slots as pallet_slots,
 };
-use child_bounties::ChildBountiesMigrator;
 use preimage::{
 	PreimageChunkMigrator, PreimageLegacyRequestStatusMigrator, PreimageRequestStatusMigrator,
 };
