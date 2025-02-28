@@ -34,6 +34,7 @@
 pub mod accounts;
 pub mod claims;
 pub mod crowdloan;
+pub mod child_bounties;
 pub mod indices;
 pub mod multisig;
 pub mod preimage;
@@ -70,6 +71,7 @@ use polkadot_parachain_primitives::primitives::Id as ParaId;
 use polkadot_runtime_common::{
 	claims as pallet_claims, crowdloan as pallet_crowdloan, paras_registrar, slots as pallet_slots,
 };
+use child_bounties::ChildBountiesMigrator;
 use preimage::{
 	PreimageChunkMigrator, PreimageLegacyRequestStatusMigrator, PreimageRequestStatusMigrator,
 };
@@ -258,6 +260,12 @@ pub enum MigrationStage<AccountId, BlockNumber, BagsListScore, AccountIndex, Vot
 	},
 	CrowdloanMigrationDone,
 
+	ChildBountiesMigrationInit,
+	ChildBountiesMigrationOngoing {
+		last_key: Option<child_bounties::ChildBountiesStage>,
+	},
+	ChildBountiesMigrationDone,
+
 	MigrationDone,
 }
 
@@ -299,6 +307,7 @@ impl<AccountId, BlockNumber, BagsListScore, AccountIndex, VotingClass, AssetKind
 			"multisig" => MigrationStage::MultisigMigrationInit,
 			"voting" => MigrationStage::ConvictionVotingMigrationInit,
 			"bounties" => MigrationStage::BountiesMigrationInit,
+			"child-bounties" => MigrationStage::ChildBountiesMigrationInit,
 			"asset_rate" => MigrationStage::AssetRateMigrationInit,
 			other => return Err(format!("Unknown migration stage: {}", other)),
 		})
@@ -342,6 +351,7 @@ pub mod pallet {
 		+ pallet_asset_rate::Config
 		+ pallet_slots::Config
 		+ pallet_crowdloan::Config
+		+ pallet_child_bounties::Config
 	{
 		/// The overarching event type.
 		type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
@@ -1123,6 +1133,38 @@ pub mod pallet {
 					}
 				},
 				MigrationStage::CrowdloanMigrationDone => {
+					Self::transition(MigrationStage::ChildBountiesMigrationInit);
+				},
+				MigrationStage::ChildBountiesMigrationInit => {
+					Self::transition(MigrationStage::ChildBountiesMigrationOngoing { last_key: None });
+				},
+				MigrationStage::ChildBountiesMigrationOngoing { last_key } => {
+					let res = with_transaction_opaque_err::<Option<_>, Error<T>, _>(|| {
+						match child_bounties::ChildBountiesMigrator::<T>::migrate_many(
+							last_key,
+							&mut weight_counter,
+						) {
+							Ok(last_key) => TransactionOutcome::Commit(Ok(last_key)),
+							Err(e) => TransactionOutcome::Rollback(Err(e)),
+						}
+					})
+					.expect("Always returning Ok; qed");
+
+					match res {
+						Ok(None) => {
+							Self::transition(MigrationStage::ChildBountiesMigrationDone);
+						},
+						Ok(Some(last_key)) => {
+							Self::transition(MigrationStage::ChildBountiesMigrationOngoing {
+								last_key: Some(last_key),
+							});
+						},
+						e => {
+							defensive!("Error while migrating child bounties: {:?}", e);
+						},
+					}
+				},
+				MigrationStage::ChildBountiesMigrationDone => {
 					Self::transition(MigrationStage::MigrationDone);
 				},
 				MigrationStage::MigrationDone => (),
